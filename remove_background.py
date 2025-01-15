@@ -1,43 +1,70 @@
 import os
 import sys
+import glob
+import numpy as np
 from PIL import Image
 import rembg
 
+def is_image_file(path: str) -> bool:
+    """Return True if 'path' ends with a typical image extension."""
+    exts = (".png", ".jpg", ".jpeg", ".bmp", ".tiff")
+    return path.lower().endswith(exts)
+
 def main():
     """
-    A simple script that takes an image from code/input/ (named input.png or input.jpg)
-    and removes its background. The result is saved to code/output/result.png.
+    Processes every image in ./code/input/:
+      - Removes background with rembg
+      - Saves RGBA result to ./code/output/<basename>_<i>.png
+      - Saves the alpha channel as a grayscale mask to ./code/output/<basename>_<i>_mask.png
     """
-
-    input_dir = os.path.join(os.path.dirname(__file__), 'input')
-    output_dir = os.path.join(os.path.dirname(__file__), 'output')
+    script_dir = os.path.dirname(__file__)
+    input_dir = os.path.join(script_dir, 'input')
+    output_dir = os.path.join(script_dir, 'output')
     os.makedirs(output_dir, exist_ok=True)
 
-    # Try to locate an input image
-    possible_inputs = ['input.png', 'input.jpg']
-    input_path = None
-    for fname in possible_inputs:
-        test_path = os.path.join(input_dir, fname)
-        if os.path.isfile(test_path):
-            input_path = test_path
-            break
+    # Gather all image paths
+    all_files = sorted(os.listdir(input_dir))
+    image_files = [f for f in all_files if is_image_file(f)]
 
-    if not input_path:
-        print("No input image found in code/input/. Please place 'input.png' or 'input.jpg' there.")
+    if not image_files:
+        print("No images found in code/input/. Please put .png, .jpg, etc. there.")
         sys.exit(1)
 
-    # Load the image
-    print(f"Reading image: {input_path}")
-    input_image = Image.open(input_path).convert('RGB')
+    print(f"Found {len(image_files)} image(s) in {input_dir}. Processing...")
 
-    # Perform background removal
-    print("Removing background...")
-    output_image = rembg.remove(input_image)  # Rembg returns RGBA with alpha
+    # Initialize a single rembg session (U2Net on CPU to save VRAM)
+    # If you prefer a different session or model, adjust here.
+    session = rembg.new_session('u2net', providers=["CPUExecutionProvider"])
 
-    # Save to code/output/result.png
-    result_path = os.path.join(output_dir, 'result.png')
-    output_image.save(result_path)
-    print(f"Saved background-removed image as: {result_path}")
+    for i, filename in enumerate(image_files):
+        base, ext = os.path.splitext(filename)
+        in_path = os.path.join(input_dir, filename)
+        
+        print(f"[{i+1}/{len(image_files)}] Removing background for: {filename}")
+        image = Image.open(in_path).convert('RGBA')
+        
+        # Perform background removal
+        out_image = rembg.remove(image, session=session)
+        
+        # Save the RGBA (background-removed) result
+        out_filename = f"{base}_{i}.png"
+        out_path = os.path.join(output_dir, out_filename)
+        out_image.save(out_path)
+        
+        # Generate and save the mask (alpha channel as grayscale)
+        out_mask_filename = f"{base}_{i}_mask.png"
+        out_mask_path = os.path.join(output_dir, out_mask_filename)
+        
+        # Extract alpha channel and make a grayscale mask
+        out_np = np.array(out_image)
+        alpha = out_np[..., 3]  # alpha channel
+        mask_img = Image.fromarray(alpha, mode='L')
+        mask_img.save(out_mask_path)
+        
+        print(f"   -> Saved removed BG:  {out_filename}")
+        print(f"   -> Saved alpha mask: {out_mask_filename}")
+
+    print("\nAll images processed. Check the 'output' folder.")
 
 if __name__ == '__main__':
     main()
