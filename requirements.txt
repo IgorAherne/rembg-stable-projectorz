@@ -1,0 +1,10 @@
+torch
+transformers
+Pillow
+opencv-python-headless
+numpy
+tqdm
+torchvision
+rembg
+onnxruntime
+easydict
